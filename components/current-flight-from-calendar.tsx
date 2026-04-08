@@ -171,7 +171,7 @@ export function CurrentFlightFromCalendar() {
         departure="—"
         arrival="—"
         arrivalTime="—"
-        status="로그인 후 캘린더에서 오늘 스케줄을 불러옵니다"
+        status="로그인 후 캘린더에서 스케줄을 불러옵니다"
       />
     )
   }
