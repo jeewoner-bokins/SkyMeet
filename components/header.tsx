@@ -4,10 +4,33 @@ import { Button } from "@/components/ui/button"
 import { useAuthSession } from "@/lib/client-auth"
 import * as React from "react"
 
+function isInAppBrowser(userAgent: string): boolean {
+  return /KAKAOTALK|NAVER|Line|Instagram|FBAN|FBAV|FB_IAB|wv|WebView/i.test(userAgent)
+}
+
+function isMobile(userAgent: string): boolean {
+  return /Android|iPhone|iPad|iPod/i.test(userAgent)
+}
+
 async function handleGoogleLogin() {
+  const userAgent = navigator.userAgent
   const callback = encodeURIComponent("/auth/popup-close")
-  const url = `/api/auth/signin/google?callbackUrl=${callback}`
-  window.open(url, "google-login", "width=480,height=640")
+  const popupUrl = `/api/auth/signin/google?callbackUrl=${callback}`
+  const redirectUrl = `/api/auth/signin/google?callbackUrl=${encodeURIComponent("/")}`
+
+  // Google blocks OAuth inside embedded in-app browsers.
+  if (isInAppBrowser(userAgent)) {
+    alert("앱 내 브라우저에서는 Google 로그인이 차단될 수 있습니다. Chrome 또는 Safari에서 이 페이지를 열어 로그인해 주세요.")
+    return
+  }
+
+  // Mobile popup behavior is inconsistent, so use full-page redirect.
+  if (isMobile(userAgent)) {
+    window.location.href = redirectUrl
+    return
+  }
+
+  window.open(popupUrl, "google-login", "width=480,height=640")
 }
 
 export function Header() {
