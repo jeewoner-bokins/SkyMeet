@@ -16,6 +16,33 @@ type GoogleCalendarList = {
   items?: Array<{ id?: string }>
 }
 
+const SEOUL_TZ = "Asia/Seoul"
+
+function getSeoulDateKey(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: SEOUL_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date)
+  const year = parts.find((p) => p.type === "year")?.value ?? "0000"
+  const month = parts.find((p) => p.type === "month")?.value ?? "01"
+  const day = parts.find((p) => p.type === "day")?.value ?? "01"
+  return `${year}-${month}-${day}`
+}
+
+function getSeoulHHMM(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: SEOUL_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date)
+  const hour = parts.find((p) => p.type === "hour")?.value ?? "00"
+  const minute = parts.find((p) => p.type === "minute")?.value ?? "00"
+  return `${hour}:${minute}`
+}
+
 export async function GET() {
   const session = await getServerSession(authOptions)
   const accessToken = session?.accessToken
@@ -27,11 +54,7 @@ export async function GET() {
     )
   }
 
-  const now = new Date()
-  const start = new Date(now)
-  start.setHours(0, 0, 0, 0)
-  const end = new Date(now)
-  end.setHours(23, 59, 59, 999)
+  const todayDateKey = getSeoulDateKey(new Date())
 
   const headers = { Authorization: `Bearer ${accessToken}` }
 
@@ -68,11 +91,12 @@ export async function GET() {
     const url = new URL(
       `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`
     )
-    url.searchParams.set("timeMin", start.toISOString())
-    url.searchParams.set("timeMax", end.toISOString())
+    url.searchParams.set("timeMin", `${todayDateKey}T00:00:00+09:00`)
+    url.searchParams.set("timeMax", `${todayDateKey}T23:59:59+09:00`)
     url.searchParams.set("singleEvents", "true")
     url.searchParams.set("orderBy", "startTime")
     url.searchParams.set("maxResults", "50")
+    url.searchParams.set("timeZone", SEOUL_TZ)
 
     const res = await fetch(url.toString(), { headers, cache: "no-store" })
     if (!res.ok) {
@@ -97,7 +121,7 @@ export async function GET() {
 
   const checkInTime =
     checkInCandidates.length > 0
-      ? `${String(checkInCandidates[0].getHours()).padStart(2, "0")}:${String(checkInCandidates[0].getMinutes()).padStart(2, "0")}`
+      ? getSeoulHHMM(checkInCandidates[0])
       : null
 
   const texts = allItems
