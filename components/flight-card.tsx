@@ -2,6 +2,7 @@
 
 import { Card, CardContent } from "@/components/ui/card"
 import { Plane } from "lucide-react"
+import * as React from "react"
 
 interface FlightCardProps {
   flightNumber: string
@@ -10,6 +11,58 @@ interface FlightCardProps {
   arrivalTime: string
   status: string
   checkInTime?: string
+}
+
+function AutoFitSingleLineText({
+  text,
+  maxPx = 14,
+  minPx = 10,
+}: {
+  text: string
+  maxPx?: number
+  minPx?: number
+}) {
+  const wrapRef = React.useRef<HTMLParagraphElement | null>(null)
+  const [fontSize, setFontSize] = React.useState(maxPx)
+
+  React.useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+
+    function fit() {
+      let low = minPx
+      let high = maxPx
+      let best = minPx
+
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2)
+        el.style.fontSize = `${mid}px`
+        if (el.scrollWidth <= el.clientWidth) {
+          best = mid
+          low = mid + 1
+        } else {
+          high = mid - 1
+        }
+      }
+      setFontSize(best)
+    }
+
+    fit()
+    const ro = new ResizeObserver(() => fit())
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [text, minPx, maxPx])
+
+  return (
+    <p
+      ref={wrapRef}
+      className="text-muted-foreground text-center whitespace-nowrap overflow-hidden text-ellipsis leading-tight"
+      style={{ fontSize }}
+      title={text}
+    >
+      {text}
+    </p>
+  )
 }
 
 export function FlightCard({
@@ -73,9 +126,9 @@ export function FlightCard({
         {/* Status */}
         <div className="flex items-center justify-center gap-2 py-3 px-4 bg-accent/50 rounded-xl">
           <span className="inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
-          <p className="text-sm text-muted-foreground text-center">
-            {status}
-          </p>
+          <div className="min-w-0 flex-1">
+            <AutoFitSingleLineText text={status} />
+          </div>
         </div>
       </CardContent>
     </Card>
