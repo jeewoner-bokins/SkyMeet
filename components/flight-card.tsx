@@ -133,10 +133,12 @@ export function FlightCard({
         </div>
 
         {/* Status */}
-        <div className="flex items-center justify-center gap-2 py-3 px-4 bg-accent/50 rounded-xl">
-          <span className="inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
-          <div className="min-w-0 flex-1">
-            <AutoFitSingleLineText text={status} />
+        <div className="flex items-center justify-center py-3 px-4 bg-accent/50 rounded-xl">
+          <div className="inline-flex items-center gap-2 min-w-0 max-w-full">
+            <span className="inline-flex h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+            <div className="min-w-0">
+              <AutoFitSingleLineText text={status} />
+            </div>
           </div>
         </div>
       </CardContent>

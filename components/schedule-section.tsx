@@ -102,14 +102,10 @@ export function ScheduleSection() {
                 </div>
                 
                 <div className="flex items-center gap-3">
-                  {flight.showCheckIn && (
-                    <div className="text-xs text-muted-foreground whitespace-nowrap">
-                      출근 {flight.checkInTime}
-                    </div>
-                  )}
-                  {flight.showLanding && (
-                    <div className="text-xs text-muted-foreground whitespace-nowrap">
-                      랜딩 {flight.landingTime}
+                  {(flight.showCheckIn || flight.showLanding) && (
+                    <div className="flex flex-col items-end text-xs text-muted-foreground whitespace-nowrap leading-tight">
+                      {flight.showCheckIn && <div>출근 {flight.checkInTime}</div>}
+                      {flight.showLanding && <div>랜딩 {flight.landingTime}</div>}
                     </div>
                   )}
                   <div className="text-right">
