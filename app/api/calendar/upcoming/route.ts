@@ -71,6 +71,18 @@ function checkInHHMMFromEventStart(start?: { date?: string; dateTime?: string })
   return getSeoulHHMM(new Date(start.dateTime))
 }
 
+function withOffsetLabel(hhmm?: string, offset?: number): string {
+  if (!hhmm) return "-"
+  return offset && offset > 0 ? `${hhmm}+${offset}` : hhmm
+}
+
+function timeScore(hhmm?: string, offset = 0): number {
+  if (!hhmm) return -1
+  const m = hhmm.match(/^(\d{2}):(\d{2})$/)
+  if (!m) return -1
+  return Number(m[1]) * 60 + Number(m[2]) + offset * 24 * 60
+}
+
 export async function GET() {
   const session = await getServerSession(authOptions)
   const accessToken = session?.accessToken
@@ -145,6 +157,7 @@ export async function GET() {
   }> = []
   const checkInByDateKey: Record<string, string> = {}
   const landingByDateKey: Record<string, string> = {}
+  const landingScoreByDateKey: Record<string, number> = {}
   const dedupeMap = new Map<
     string,
     {
@@ -178,11 +191,17 @@ export async function GET() {
     if (parsed.length > 0) {
       for (const f of parsed) {
         const depTime = f.departureTimeLocal ?? f.departureTimeBase ?? "-"
-        const arrTimeLocal = f.arrivalTimeLocal ?? f.arrivalTimeBase ?? "-"
+        const arrRaw = f.arrivalTimeLocal ?? f.arrivalTimeBase
+        const arrOffset = f.arrivalTimeLocal
+          ? (f.arrivalDayOffsetLocal ?? 0)
+          : (f.arrivalDayOffsetBase ?? 0)
+        const arrDisplay = withOffsetLabel(arrRaw, arrOffset)
         const route = `${f.departure} -> ${f.arrival}`
-        if (arrTimeLocal !== "-") {
-          if (!landingByDateKey[dateKey] || arrTimeLocal > landingByDateKey[dateKey]) {
-            landingByDateKey[dateKey] = arrTimeLocal
+        const score = timeScore(arrRaw, arrOffset)
+        if (score >= 0) {
+          if (landingScoreByDateKey[dateKey] === undefined || score > landingScoreByDateKey[dateKey]) {
+            landingScoreByDateKey[dateKey] = score
+            landingByDateKey[dateKey] = arrDisplay
           }
         }
         const key = `${dateKey}|${f.flightNumber}`

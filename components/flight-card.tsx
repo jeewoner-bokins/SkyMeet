@@ -11,6 +11,7 @@ interface FlightCardProps {
   arrivalTime: string
   status: string
   checkInTime?: string
+  landingTime?: string
 }
 
 function AutoFitSingleLineText({
@@ -71,22 +72,30 @@ export function FlightCard({
   arrival,
   arrivalTime,
   status,
-  checkInTime
+  checkInTime,
+  landingTime
 }: FlightCardProps) {
   return (
     <Card className="bg-card border-0 shadow-sm rounded-3xl overflow-hidden">
       <CardContent className="p-8">
         {/* Flight Number */}
         <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2">
+          <div className="flex items-start gap-2">
             <span className="text-2xl font-bold tracking-tight text-foreground">
               {flightNumber}
             </span>
-            {checkInTime && (
-              <span className="text-xs text-muted-foreground">
-                출근 {checkInTime}
-              </span>
-            )}
+            <div className="flex flex-col gap-0.5">
+              {checkInTime && (
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  출근 {checkInTime}
+                </span>
+              )}
+              {landingTime && (
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  랜딩 {landingTime}
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />

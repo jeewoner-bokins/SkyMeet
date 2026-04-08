@@ -15,18 +15,34 @@ function toMinutes(hhmm?: string): number | null {
   return Number(m[1]) * 60 + Number(m[2])
 }
 
+function formatWithDayOffset(hhmm?: string, dayOffset?: number): string {
+  if (!hhmm) return "—"
+  return dayOffset && dayOffset > 0 ? `${hhmm}+${dayOffset}` : hhmm
+}
+
 function pickCurrentFlight(parsed: ReturnType<typeof parseJejuScheduleText>) {
   const now = new Date()
   const nowMin = now.getHours() * 60 + now.getMinutes()
   const enriched = parsed.map((f) => {
-    const dep = toMinutes(f.departureTimeBase ?? f.departureTimeLocal)
-    const arr = toMinutes(f.arrivalTimeBase ?? f.arrivalTimeLocal)
+    const useBase = Boolean(f.departureTimeBase ?? f.arrivalTimeBase)
+    const depRaw = useBase ? f.departureTimeBase : f.departureTimeLocal
+    const arrRaw = useBase ? f.arrivalTimeBase : f.arrivalTimeLocal
+    const arrOffset = useBase
+      ? (f.arrivalDayOffsetBase ?? 0)
+      : (f.arrivalDayOffsetLocal ?? 0)
+    const dep = toMinutes(depRaw)
+    const arr = toMinutes(arrRaw)
     return { flight: f, dep, arr }
   })
 
   // 1) Ongoing flight first.
   const ongoing = enriched.find(
-    (e) => e.dep !== null && e.arr !== null && e.dep <= nowMin && nowMin <= e.arr
+    (e) => {
+      if (e.dep === null || e.arr === null) return false
+      const arrOffset = (e.flight.arrivalDayOffsetBase ?? e.flight.arrivalDayOffsetLocal ?? 0)
+      const arrAdjusted = e.arr + arrOffset * 24 * 60
+      return e.dep <= nowMin && nowMin <= arrAdjusted
+    }
   )
   if (ongoing) return ongoing.flight
 
@@ -51,6 +67,7 @@ export function CurrentFlightFromCalendar() {
     arrivalTime: string
     status: string
     checkInTime?: string
+    landingTime?: string
   } | null>(null)
 
   React.useEffect(() => {
@@ -106,10 +123,10 @@ export function CurrentFlightFromCalendar() {
           return
         }
 
-        const arrivalTime =
-          picked.arrivalTimeBase ??
-          picked.arrivalTimeLocal ??
-          "—"
+        const useBase = Boolean(picked.arrivalTimeBase || picked.departureTimeBase)
+        const arrivalTime = useBase
+          ? formatWithDayOffset(picked.arrivalTimeBase, picked.arrivalDayOffsetBase)
+          : formatWithDayOffset(picked.arrivalTimeLocal, picked.arrivalDayOffsetLocal)
 
         if (!cancelled) {
           let liveStatus = "캘린더 텍스트에서 파싱한 스케줄입니다"
@@ -138,6 +155,7 @@ export function CurrentFlightFromCalendar() {
             arrivalTime,
             status: liveStatus,
             checkInTime: data.checkInTime ?? undefined,
+            landingTime: arrivalTime !== "—" ? arrivalTime : undefined,
           })
         }
       } catch (e) {
@@ -208,6 +226,7 @@ export function CurrentFlightFromCalendar() {
       arrivalTime={flight?.arrivalTime ?? "—"}
       status={flight?.status ?? "캘린더 텍스트에서 파싱한 스케줄입니다"}
       checkInTime={flight?.checkInTime}
+      landingTime={flight?.landingTime}
     />
   )
 }

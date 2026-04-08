@@ -7,6 +7,8 @@ export type ParsedFlightSchedule = {
   arrivalTimeLocal?: string // "HH:MM"
   departureTimeBase?: string // "HH:MM"
   arrivalTimeBase?: string // "HH:MM"
+  arrivalDayOffsetLocal?: number // e.g. +1 means next day
+  arrivalDayOffsetBase?: number // e.g. +1 means next day
 }
 
 function normalizeText(text: string): string {
@@ -49,19 +51,25 @@ export function parseJejuScheduleText(text: string): ParsedFlightSchedule[] {
     let arrivalTimeLocal: string | undefined
     let departureTimeBase: string | undefined
     let arrivalTimeBase: string | undefined
+    let arrivalDayOffsetLocal = 0
+    let arrivalDayOffsetBase = 0
 
-    const timeRe = /(\d{3,4})\s*[-~]\s*(\d{3,4})\s*\(\s*([LB])\s*\)/g
+    const timeRe = /(\d{3,4})(?:\+(\d+))?\s*[-~]\s*(\d{3,4})(?:\+(\d+))?\s*\(\s*([LB])\s*\)/g
     for (const t of block.matchAll(timeRe)) {
       const dep = toHHMM(t[1])
-      const arr = toHHMM(t[2])
-      const kind = t[3] as "L" | "B"
+      const depOffset = Number(t[2] ?? "0")
+      const arr = toHHMM(t[3])
+      const arrOffset = Number(t[4] ?? "0")
+      const kind = t[5] as "L" | "B"
 
       if (kind === "L") {
         departureTimeLocal = dep
         arrivalTimeLocal = arr
+        arrivalDayOffsetLocal = Math.max(arrOffset, depOffset)
       } else {
         departureTimeBase = dep
         arrivalTimeBase = arr
+        arrivalDayOffsetBase = Math.max(arrOffset, depOffset)
       }
     }
 
@@ -74,6 +82,8 @@ export function parseJejuScheduleText(text: string): ParsedFlightSchedule[] {
       arrivalTimeLocal,
       departureTimeBase,
       arrivalTimeBase,
+      arrivalDayOffsetLocal,
+      arrivalDayOffsetBase,
     })
     currentFlightNo = null
     currentBlock = []
