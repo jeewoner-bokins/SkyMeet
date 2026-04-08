@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import { useAuthSession } from "@/lib/client-auth"
+import Image from "next/image"
 import * as React from "react"
 
 function isInAppBrowser(userAgent: string): boolean {
@@ -52,9 +53,19 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 w-full bg-background/80 backdrop-blur-xl border-b border-border/50">
       <div className="flex items-center justify-between px-6 py-4">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          SkyMeet
-        </h1>
+        <div className="flex items-center gap-2">
+          <Image
+            src="/logo-june.jpg"
+            alt="SkyMeet logo"
+            width={28}
+            height={28}
+            className="rounded-full border border-border/50"
+            priority
+          />
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">
+            SkyMeet
+          </h1>
+        </div>
         <div className="flex items-center gap-3">
           {session && (
             <div className="hidden sm:block text-xs text-muted-foreground max-w-[200px] truncate">
