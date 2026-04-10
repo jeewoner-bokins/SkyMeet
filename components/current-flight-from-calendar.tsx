@@ -27,9 +27,6 @@ function pickCurrentFlight(parsed: ReturnType<typeof parseJejuScheduleText>) {
     const useBase = Boolean(f.departureTimeBase ?? f.arrivalTimeBase)
     const depRaw = useBase ? f.departureTimeBase : f.departureTimeLocal
     const arrRaw = useBase ? f.arrivalTimeBase : f.arrivalTimeLocal
-    const arrOffset = useBase
-      ? (f.arrivalDayOffsetBase ?? 0)
-      : (f.arrivalDayOffsetLocal ?? 0)
     const dep = toMinutes(depRaw)
     const arr = toMinutes(arrRaw)
     return { flight: f, dep, arr }
@@ -54,6 +51,50 @@ function pickCurrentFlight(parsed: ReturnType<typeof parseJejuScheduleText>) {
 
   // 3) Otherwise fallback to last flight.
   return enriched[enriched.length - 1]?.flight ?? parsed[0]
+}
+
+/** 오늘 나머지 편(현재 편 제외)을 ScheduleSection에 전달하는 이벤트 */
+function dispatchTodayRemaining(
+  parsed: ReturnType<typeof parseJejuScheduleText>,
+  currentFlightNumber: string,
+  checkInTime: string | null
+) {
+  const sorted = [...parsed].sort((a, b) => {
+    const depA = toMinutes(a.departureTimeBase ?? a.departureTimeLocal) ?? 9999
+    const depB = toMinutes(b.departureTimeBase ?? b.departureTimeLocal) ?? 9999
+    return depA - depB
+  })
+
+  const remaining = sorted
+    .filter((f) => f.flightNumber !== currentFlightNumber)
+    .map((f, idx, arr) => {
+      const useBase = Boolean(f.departureTimeBase ?? f.arrivalTimeBase)
+      const depTime = (useBase ? f.departureTimeBase : f.departureTimeLocal) ?? "-"
+      const arrRaw = useBase ? f.arrivalTimeBase : f.arrivalTimeLocal
+      const arrOffset = useBase
+        ? (f.arrivalDayOffsetBase ?? 0)
+        : (f.arrivalDayOffsetLocal ?? 0)
+      const landingTime = arrRaw
+        ? arrOffset > 0
+          ? `${arrRaw}+${arrOffset}`
+          : arrRaw
+        : "-"
+      return {
+        id: `today-rem-${f.flightNumber}`,
+        flightNumber: f.flightNumber,
+        route: `${f.departure} -> ${f.arrival}`,
+        checkInTime: checkInTime ?? "-",
+        showCheckIn: false,
+        landingTime,
+        showLanding: idx === arr.length - 1,
+        date: "오늘",
+        time: depTime,
+      }
+    })
+
+  window.dispatchEvent(
+    new CustomEvent("skymeet:todayRemainingFlights", { detail: { flights: remaining } })
+  )
 }
 
 export function CurrentFlightFromCalendar() {
@@ -95,6 +136,12 @@ export function CurrentFlightFromCalendar() {
         const picked = pickCurrentFlight(parsed)
         if (!picked) {
           const duty = parseDutyCode(data.text)
+
+          // 나머지 편 없음 → 빈 배열 전달
+          window.dispatchEvent(
+            new CustomEvent("skymeet:todayRemainingFlights", { detail: { flights: [] } })
+          )
+
           if (!duty) {
             if (!data.text.trim()) {
               if (!cancelled) {
@@ -121,6 +168,11 @@ export function CurrentFlightFromCalendar() {
             })
           }
           return
+        }
+
+        // 오늘 나머지 편 → ScheduleSection으로 브로드캐스트
+        if (!cancelled) {
+          dispatchTodayRemaining(parsed, picked.flightNumber, data.checkInTime ?? null)
         }
 
         const useBase = Boolean(picked.arrivalTimeBase || picked.departureTimeBase)
@@ -230,4 +282,3 @@ export function CurrentFlightFromCalendar() {
     />
   )
 }
-

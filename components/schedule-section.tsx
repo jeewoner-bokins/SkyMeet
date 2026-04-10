@@ -21,9 +21,11 @@ interface UpcomingFlight {
 export function ScheduleSection() {
   const { status } = useAuthSession()
   const [upcomingFlights, setUpcomingFlights] = React.useState<UpcomingFlight[]>([])
+  const [todayRemainingFlights, setTodayRemainingFlights] = React.useState<UpcomingFlight[]>([])
   const [syncing, setSyncing] = React.useState(false)
   const [syncError, setSyncError] = React.useState<string | null>(null)
 
+  // 내일+ 스케줄: /api/calendar/upcoming 에서 로드
   React.useEffect(() => {
     async function loadUpcoming() {
       if (status !== "authenticated") {
@@ -58,10 +60,29 @@ export function ScheduleSection() {
     return () => window.removeEventListener("skymeet:calendarSync", onSync)
   }, [status])
 
+  // 오늘 나머지 편: CurrentFlightFromCalendar 에서 브로드캐스트
+  React.useEffect(() => {
+    function onTodayRemaining(e: Event) {
+      const { flights } = (e as CustomEvent<{ flights: UpcomingFlight[] }>).detail
+      setTodayRemainingFlights(flights)
+    }
+    window.addEventListener("skymeet:todayRemainingFlights", onTodayRemaining)
+    return () => window.removeEventListener("skymeet:todayRemainingFlights", onTodayRemaining)
+  }, [])
+
+  // 인증 해제 시 오늘 나머지도 초기화
+  React.useEffect(() => {
+    if (status !== "authenticated") {
+      setTodayRemainingFlights([])
+    }
+  }, [status])
+
+  const allFlights = [...todayRemainingFlights, ...upcomingFlights]
+
   return (
     <section className="space-y-5">
       {/* Sync Button */}
-      <Button 
+      <Button
         className="w-full h-14 rounded-2xl text-base font-semibold bg-primary text-primary-foreground hover:bg-primary/90 active:scale-[0.98] transition-transform"
         onClick={() => window.dispatchEvent(new Event("skymeet:calendarSync"))}
       >
@@ -72,20 +93,20 @@ export function ScheduleSection() {
         <p className="text-xs text-destructive px-1">{syncError}</p>
       )}
 
-      {/* Upcoming Flights */}
+      {/* 예정된 비행 */}
       <div className="space-y-3">
         <h2 className="text-sm font-medium text-muted-foreground px-1">
           예정된 비행
         </h2>
-        
+
         <Card className="bg-card border-0 shadow-sm rounded-2xl overflow-hidden">
           <CardContent className="p-0 divide-y divide-border/50">
-            {upcomingFlights.length === 0 && (
+            {allFlights.length === 0 && (
               <div className="p-4 text-sm text-muted-foreground">
                 예정된 비행이 없습니다.
               </div>
             )}
-            {upcomingFlights.map((flight) => (
+            {allFlights.map((flight) => (
               <button
                 key={flight.id}
                 className="w-full flex items-center justify-between p-4 hover:bg-accent/30 transition-colors active:bg-accent/50"
@@ -100,7 +121,7 @@ export function ScheduleSection() {
                     </span>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center gap-3">
                   {(flight.showCheckIn || flight.showLanding) && (
                     <div className="flex flex-col items-end text-xs text-muted-foreground whitespace-nowrap leading-tight">

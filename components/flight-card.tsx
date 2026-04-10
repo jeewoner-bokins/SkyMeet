@@ -31,6 +31,7 @@ function AutoFitSingleLineText({
     if (!el) return
 
     function fit() {
+      if (!el) return
       let low = minPx
       let high = maxPx
       let best = minPx
