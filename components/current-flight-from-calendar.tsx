@@ -248,8 +248,9 @@ export function CurrentFlightFromCalendar() {
                   break
               }
             }
-          } catch {
+          } catch (frErr) {
             // Flightradar24 실패 시 캘린더 기반 값 유지
+            console.warn("[FR24] fetch failed:", frErr)
           }
 
           setFlight({

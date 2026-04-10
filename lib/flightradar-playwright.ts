@@ -1,6 +1,5 @@
-// playwright-extra + puppeteer-extra-plugin-stealth 을 런타임에만 require.
-// 모듈 최상위에서 require 하면 Next.js 빌드 타임 "Collecting page data" 단계에서
-// CJS 패키지 내부 코드가 실행되어 TypeError 가 발생하므로, 함수 호출 시점에만 로드합니다.
+// Playwright + Chromium은 Vercel 서버리스 환경에서 바이너리가 없어 항상 실패합니다.
+// FR24 내부 JSON API를 직접 fetch하는 방식으로 대체합니다.
 
 export type FlightStatusKind =
   | "estimated_departure"  // 지연 — 아직 출발 전
@@ -13,14 +12,6 @@ export type FlightStatusResult = {
   statusKind: FlightStatusKind | null
   statusTime: string | null
   matchedRow: string | null
-}
-
-function randomInt(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 /** "4:26 PM" / "4:26PM" / "16:26" → "16:26" (24h) */
@@ -37,138 +28,130 @@ function normalizeTime(hhmm: string, ampm?: string): string | null {
   return `${String(h).padStart(2, "0")}:${min}`
 }
 
-/** 텍스트 한 줄에서 시간 추출 (12h AM/PM, 24h 모두 지원) */
 function extractTime(text: string): string | null {
   const m = text.match(/(\d{1,2}:\d{2})\s*(AM|PM)?/i)
   if (!m) return null
   return normalizeTime(m[1], m[2])
 }
 
-function parseStatusFromText(text: string): { kind: FlightStatusKind; time: string } | null {
-  const n = text.replace(/\s+/g, " ").trim()
-  const lo = n.toLowerCase()
-  const time = extractTime(n)
+/** Unix timestamp → "HH:MM" (Asia/Seoul) */
+function unixToSeoulHHMM(unix: number): string {
+  const date = new Date(unix * 1000)
+  return date.toLocaleTimeString("en-GB", {
+    timeZone: "Asia/Seoul",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+}
+
+function parseStatusText(text: string): { kind: FlightStatusKind; time: string } | null {
+  const lo = text.toLowerCase()
+  const time = extractTime(text)
   if (!time) return null
 
-  // "Estimated departure …" 또는 "Estimated dep …"
   if (/estimated\s+(dep|departure)/i.test(lo)) return { kind: "estimated_departure", time }
-  // "Estimated arrival …" 또는 "Estimated arr …"
   if (/estimated\s+(arr|arrival)/i.test(lo)) return { kind: "estimated_arrival", time }
-  // 그냥 "Estimated …" → 도착 예정으로 간주
   if (/estimated/i.test(lo)) return { kind: "estimated_arrival", time }
-  // "Scheduled …"
   if (/scheduled/i.test(lo)) return { kind: "scheduled", time }
-  // "Landed …"
   if (/landed/i.test(lo)) return { kind: "landed", time }
 
   return null
 }
 
-// 프로세스 당 한 번만 stealth 플러그인을 등록
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _chromium: any = null
-
-function getChromium() {
-  if (!_chromium) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require("playwright-extra")
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const StealthPlugin = require("puppeteer-extra-plugin-stealth")
-    mod.chromium.use(StealthPlugin())
-    _chromium = mod.chromium
+// FR24 API 응답 타입 (필요한 필드만 정의)
+type Fr24Entry = {
+  status?: { text?: string }
+  time?: {
+    estimated?: { departure?: number | null; arrival?: number | null }
+    real?: { departure?: number | null; arrival?: number | null }
+    scheduled?: { departure?: number | null; arrival?: number | null }
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return _chromium as any
+}
+
+type Fr24Response = {
+  result?: {
+    response?: {
+      data?: Fr24Entry[] | null
+    }
+  }
 }
 
 export async function fetchFlightradarStatus(
   flightNumber: string
 ): Promise<FlightStatusResult> {
-  const chromium = getChromium()
+  const query = flightNumber.toLowerCase().replace(/\s+/g, "")
+  const url = `https://api.flightradar24.com/common/v1/flight/list.json?fetchBy=flight&query=${encodeURIComponent(query)}&page=1&limit=10`
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const browser = await (chromium.launch as any)({
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-blink-features=AutomationControlled",
-      "--disable-infobars",
-      "--window-size=1366,768",
-      "--disable-dev-shm-usage",
-    ],
-  })
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const context = await (browser as any).newContext({
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
-    viewport: { width: 1366, height: 768 },
-    locale: "en-US",
-    timezoneId: "Asia/Seoul",
-    extraHTTPHeaders: {
+  const res = await fetch(url, {
+    headers: {
+      Accept: "application/json, text/plain, */*",
       "Accept-Language": "en-US,en;q=0.9",
-      Accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-      "sec-ch-ua": '"Google Chrome";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
-      "sec-ch-ua-mobile": "?0",
-      "sec-ch-ua-platform": '"Windows"',
+      "User-Agent":
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/21E236",
+      Origin: "https://www.flightradar24.com",
+      Referer: `https://www.flightradar24.com/data/flights/${query}`,
     },
+    signal: AbortSignal.timeout(10000),
   })
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const page = await (context as any).newPage()
+  if (!res.ok) {
+    throw new Error(`FR24 API ${res.status}: ${res.statusText}`)
+  }
 
-  try {
-    await sleep(randomInt(800, 2000))
+  const json = (await res.json()) as Fr24Response
+  const entries: Fr24Entry[] = json?.result?.response?.data ?? []
 
-    const url = `https://www.flightradar24.com/data/flights/${encodeURIComponent(
-      flightNumber.toLowerCase()
-    )}`
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (page as any).goto(url, { waitUntil: "domcontentloaded", timeout: 45000 })
-
-    await Promise.race([
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (page as any).waitForSelector("table", { timeout: 15000 }).catch(() => null),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (page as any).waitForLoadState("networkidle", { timeout: 20000 }).catch(() => null),
-    ])
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const title: string = await (page as any).title()
-    if (
-      title.toLowerCase().includes("just a moment") ||
-      title.toLowerCase().includes("attention required") ||
-      title.toLowerCase().includes("access denied")
-    ) {
-      throw new Error(`CLOUDFLARE_BLOCKED: page title="${title}"`)
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const bodyText: string = await (page as any).locator("body").innerText()
-    const lines = bodyText
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-
-    for (const line of lines) {
-      const parsed = parseStatusFromText(line)
+  // 가장 최근 항목부터 검사
+  for (const entry of entries) {
+    // 1) status.text 에서 파싱 (예: "Estimated arrival 17:25")
+    const statusText = entry.status?.text ?? ""
+    if (statusText) {
+      const parsed = parseStatusText(statusText)
       if (parsed) {
         return {
           flightNumber,
           statusKind: parsed.kind,
           statusTime: parsed.time,
-          matchedRow: line,
+          matchedRow: statusText,
         }
       }
     }
 
-    return { flightNumber, statusKind: null, statusTime: null, matchedRow: null }
-  } finally {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (context as any).close()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (browser as any).close()
+    // 2) status.text 로 파싱 못하면 timestamp 필드로 직접 계산
+    const t = entry.time ?? {}
+    const realDep = t.real?.departure
+    const estDep = t.estimated?.departure
+    const realArr = t.real?.arrival
+    const estArr = t.estimated?.arrival
+
+    if (realArr) {
+      return {
+        flightNumber,
+        statusKind: "landed",
+        statusTime: unixToSeoulHHMM(realArr),
+        matchedRow: `real.arrival=${realArr}`,
+      }
+    }
+    if (estArr && realDep) {
+      // 출발은 했고 도착 예정
+      return {
+        flightNumber,
+        statusKind: "estimated_arrival",
+        statusTime: unixToSeoulHHMM(estArr),
+        matchedRow: `estimated.arrival=${estArr}`,
+      }
+    }
+    if (estDep && !realDep) {
+      // 아직 출발 전 (지연 포함)
+      return {
+        flightNumber,
+        statusKind: "estimated_departure",
+        statusTime: unixToSeoulHHMM(estDep),
+        matchedRow: `estimated.departure=${estDep}`,
+      }
+    }
   }
+
+  return { flightNumber, statusKind: null, statusTime: null, matchedRow: null }
 }
