@@ -1,10 +1,6 @@
-// playwright-extra + puppeteer-extra-plugin-stealth:
-// navigator.webdriver 은닉, Chrome 런타임/플러그인 패치, Canvas 핑거프린트 우회 등
-// headless Chromium의 자동화 탐지를 최소화합니다.
-import { chromium } from "playwright-extra"
-import StealthPlugin from "puppeteer-extra-plugin-stealth"
-
-chromium.use(StealthPlugin())
+// playwright-extra + puppeteer-extra-plugin-stealth 을 런타임에만 require.
+// 모듈 최상위에서 require 하면 Next.js 빌드 타임 "Collecting page data" 단계에서
+// CJS 패키지 내부 코드가 실행되어 TypeError 가 발생하므로, 함수 호출 시점에만 로드합니다.
 
 type FlightStatusResult = {
   flightNumber: string
@@ -35,10 +31,28 @@ function parseStatusFromText(
   return null
 }
 
+// 프로세스 당 한 번만 stealth 플러그인을 등록
+let _chromium: { launch: (...args: unknown[]) => Promise<unknown>; use: (plugin: unknown) => void } | null = null
+
+function getChromium() {
+  if (!_chromium) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require("playwright-extra") as { chromium: typeof _chromium & object }
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const StealthPlugin = require("puppeteer-extra-plugin-stealth") as () => unknown
+    mod.chromium.use(StealthPlugin())
+    _chromium = mod.chromium
+  }
+  return _chromium!
+}
+
 export async function fetchFlightradarStatus(
   flightNumber: string
 ): Promise<FlightStatusResult> {
-  const browser = await chromium.launch({
+  const chromium = getChromium()
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const browser = await (chromium.launch as any)({
     headless: true,
     args: [
       "--no-sandbox",
@@ -50,7 +64,8 @@ export async function fetchFlightradarStatus(
     ],
   })
 
-  const context = await browser.newContext({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const context = await (browser as any).newContext({
     userAgent:
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
     viewport: { width: 1366, height: 768 },
@@ -66,7 +81,8 @@ export async function fetchFlightradarStatus(
     },
   })
 
-  const page = await context.newPage()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const page = await (context as any).newPage()
 
   try {
     await sleep(randomInt(800, 2000))
@@ -74,16 +90,18 @@ export async function fetchFlightradarStatus(
     const url = `https://www.flightradar24.com/data/flights/${encodeURIComponent(
       flightNumber.toLowerCase()
     )}`
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (page as any).goto(url, { waitUntil: "domcontentloaded", timeout: 45000 })
 
-    // 테이블 또는 networkidle 중 먼저 오는 쪽을 기다림
     await Promise.race([
-      page.waitForSelector("table", { timeout: 15000 }).catch(() => null),
-      page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => null),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (page as any).waitForSelector("table", { timeout: 15000 }).catch(() => null),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (page as any).waitForLoadState("networkidle", { timeout: 20000 }).catch(() => null),
     ])
 
-    // Cloudflare 차단 감지
-    const title = await page.title()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const title: string = await (page as any).title()
     if (
       title.toLowerCase().includes("just a moment") ||
       title.toLowerCase().includes("attention required") ||
@@ -92,7 +110,8 @@ export async function fetchFlightradarStatus(
       throw new Error(`CLOUDFLARE_BLOCKED: page title="${title}"`)
     }
 
-    const bodyText = await page.locator("body").innerText()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const bodyText: string = await (page as any).locator("body").innerText()
     const lines = bodyText
       .split("\n")
       .map((line) => line.trim())
@@ -110,14 +129,11 @@ export async function fetchFlightradarStatus(
       }
     }
 
-    return {
-      flightNumber,
-      statusType: null,
-      statusTime: null,
-      matchedRow: null,
-    }
+    return { flightNumber, statusType: null, statusTime: null, matchedRow: null }
   } finally {
-    await context.close()
-    await browser.close()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (context as any).close()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (browser as any).close()
   }
 }
