@@ -259,6 +259,17 @@ export function CurrentFlightFromCalendar() {
                 liveStatus = "착륙 완료 (Flightradar24)"
                 break
             }
+          } else {
+            // FR24에 오늘 데이터 없음 → 아직 미출발이면 캘린더 출발시각으로 표시
+            const isUpcoming = upcoming.some(f => f.flightNumber === picked.flightNumber)
+            if (isUpcoming) {
+              const calDep = picked.departureTimeLocal ?? picked.departureTimeBase
+              if (calDep) {
+                heroTime  = calDep
+                heroLabel = "출발 예정"
+                liveStatus = "캘린더 기준 예정 (FR24 미등록)"
+              }
+            }
           }
         } catch (frErr) {
           console.warn("[FR24]", frErr)

@@ -45,6 +45,13 @@ function unixToSeoulHHMM(unix: number): string {
   })
 }
 
+/** Unix timestamp가 오늘(서울 기준)인지 확인 */
+function isTodaySeoul(unix: number): boolean {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" })
+  const entryDate = new Date(unix * 1000).toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" })
+  return entryDate === today
+}
+
 function parseStatusText(text: string): { kind: FlightStatusKind; time: string } | null {
   const lo = text.toLowerCase()
   const time = extractTime(text)
@@ -104,6 +111,13 @@ export async function fetchFlightradarStatus(
 
   // 가장 최근 항목부터 검사
   for (const entry of entries) {
+    // 0) 오늘(서울 기준) 날짜의 항목만 처리 — 과거 운항 데이터 차단
+    const depTs =
+      entry.time?.scheduled?.departure ??
+      entry.time?.real?.departure ??
+      entry.time?.estimated?.departure
+    if (!depTs || !isTodaySeoul(depTs)) continue
+
     // 1) status.text 에서 파싱 (예: "Estimated arrival 17:25")
     const statusText = entry.status?.text ?? ""
     if (statusText) {
