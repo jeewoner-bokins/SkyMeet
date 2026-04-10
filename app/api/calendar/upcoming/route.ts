@@ -179,6 +179,9 @@ export async function GET() {
     const text = `${e.description ?? ""}\n${e.summary ?? ""}\n${e.location ?? ""}`.trim()
     if (!text) continue
     const dateKey = dateKeyFromEventStart(e.start)
+    // 오늘 이벤트는 today API에서 처리하므로 제외
+    // (all-day 이벤트의 end.date가 내일로 저장되어 upcoming 쿼리에 포함될 수 있음)
+    if (dateKey === todayDateKey) continue
     const date = dayLabel(dateKey, todayDateKey)
     const checkInCandidate = checkInHHMMFromEventStart(e.start)
     if (checkInCandidate) {
