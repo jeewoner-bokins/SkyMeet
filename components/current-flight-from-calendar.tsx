@@ -7,6 +7,7 @@ import { useAuthSession } from "@/lib/client-auth"
 
 type ApiOk = { ok: true; text: string; checkInTime?: string | null }
 type ApiErr = { ok: false; error: string; details?: string; [k: string]: unknown }
+type ParsedFlight = ReturnType<typeof parseJejuScheduleText>[number]
 
 function toMinutes(hhmm?: string): number | null {
   if (!hhmm) return null
@@ -20,60 +21,83 @@ function formatWithDayOffset(hhmm?: string, dayOffset?: number): string {
   return dayOffset && dayOffset > 0 ? `${hhmm}+${dayOffset}` : hhmm
 }
 
-function pickCurrentFlight(parsed: ReturnType<typeof parseJejuScheduleText>) {
-  const now = new Date()
-  const nowMin = now.getHours() * 60 + now.getMinutes()
-  const enriched = parsed.map((f) => {
-    const useBase = Boolean(f.departureTimeBase ?? f.arrivalTimeBase)
-    const depRaw = useBase ? f.departureTimeBase : f.departureTimeLocal
-    const arrRaw = useBase ? f.arrivalTimeBase : f.arrivalTimeLocal
-    const dep = toMinutes(depRaw)
-    const arr = toMinutes(arrRaw)
-    return { flight: f, dep, arr }
-  })
-
-  // 1) Ongoing flight first.
-  const ongoing = enriched.find(
-    (e) => {
-      if (e.dep === null || e.arr === null) return false
-      const arrOffset = (e.flight.arrivalDayOffsetBase ?? e.flight.arrivalDayOffsetLocal ?? 0)
-      const arrAdjusted = e.arr + arrOffset * 24 * 60
-      return e.dep <= nowMin && nowMin <= arrAdjusted
+/**
+ * 같은 편번호가 (L)과 (B) 두 블록으로 각각 파싱되는 경우 dedup.
+ * (L) 시간이 있는 항목을 우선 보존.
+ */
+function deduplicateFlights(parsed: ParsedFlight[]): ParsedFlight[] {
+  const map = new Map<string, ParsedFlight>()
+  for (const f of parsed) {
+    const existing = map.get(f.flightNumber)
+    if (!existing) {
+      map.set(f.flightNumber, f)
+    } else if (!existing.departureTimeLocal && f.departureTimeLocal) {
+      // (B)만 있던 항목을 (L) 항목으로 교체
+      map.set(f.flightNumber, f)
     }
-  )
-  if (ongoing) return ongoing.flight
-
-  // 2) Next upcoming flight today.
-  const upcoming = enriched
-    .filter((e) => e.dep !== null && e.dep >= nowMin)
-    .sort((a, b) => (a.dep ?? 0) - (b.dep ?? 0))[0]
-  if (upcoming) return upcoming.flight
-
-  // 3) Otherwise fallback to last flight.
-  return enriched[enriched.length - 1]?.flight ?? parsed[0]
+  }
+  return [...map.values()]
 }
 
-/** 오늘 나머지 편(현재 편 제외)을 ScheduleSection에 전달하는 이벤트 */
+/** (L) 우선, 없으면 (B) 폴백으로 출발 분 반환 */
+function depMinutes(f: ParsedFlight): number | null {
+  return toMinutes(f.departureTimeLocal ?? f.departureTimeBase)
+}
+
+function pickCurrentFlight(flights: ParsedFlight[]) {
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes()
+
+  const enriched = flights.map((f) => {
+    const depRaw = f.departureTimeLocal ?? f.departureTimeBase
+    const arrRaw = f.arrivalTimeLocal ?? f.arrivalTimeBase
+    const arrOffset = f.departureTimeLocal
+      ? (f.arrivalDayOffsetLocal ?? 0)
+      : (f.arrivalDayOffsetBase ?? 0)
+    const dep = toMinutes(depRaw)
+    const arr = toMinutes(arrRaw)
+    return { flight: f, dep, arr, arrOffset }
+  })
+
+  // 1) 현재 비행 중인 편
+  const ongoing = enriched.find((e) => {
+    if (e.dep === null || e.arr === null) return false
+    const arrAdjusted = e.arr + e.arrOffset * 24 * 60
+    return e.dep <= nowMin && nowMin <= arrAdjusted
+  })
+  if (ongoing) return ongoing.flight
+
+  // 2) 아직 출발 전인 다음 편
+  const next = enriched
+    .filter((e) => e.dep !== null && e.dep >= nowMin)
+    .sort((a, b) => (a.dep ?? 0) - (b.dep ?? 0))[0]
+  if (next) return next.flight
+
+  // 3) 모두 지난 경우 — 마지막 편
+  return enriched[enriched.length - 1]?.flight ?? flights[0]
+}
+
+/** 오늘 나머지 편(현재 편 제외, 이미 지난 편 제외)을 ScheduleSection에 전달 */
 function dispatchTodayRemaining(
-  parsed: ReturnType<typeof parseJejuScheduleText>,
+  flights: ParsedFlight[],
   currentFlightNumber: string,
   checkInTime: string | null
 ) {
-  const sorted = [...parsed].sort((a, b) => {
-    const depA = toMinutes(a.departureTimeBase ?? a.departureTimeLocal) ?? 9999
-    const depB = toMinutes(b.departureTimeBase ?? b.departureTimeLocal) ?? 9999
-    return depA - depB
-  })
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes()
 
-  const remaining = sorted
-    .filter((f) => f.flightNumber !== currentFlightNumber)
-    .map((f, idx, arr) => {
-      const useBase = Boolean(f.departureTimeBase ?? f.arrivalTimeBase)
-      const depTime = (useBase ? f.departureTimeBase : f.departureTimeLocal) ?? "-"
-      const arrRaw = useBase ? f.arrivalTimeBase : f.arrivalTimeLocal
-      const arrOffset = useBase
-        ? (f.arrivalDayOffsetBase ?? 0)
-        : (f.arrivalDayOffsetLocal ?? 0)
+  const remaining = [...flights]
+    .sort((a, b) => (depMinutes(a) ?? 9999) - (depMinutes(b) ?? 9999))
+    .filter((f) => {
+      if (f.flightNumber === currentFlightNumber) return false
+      const dep = depMinutes(f)
+      // 출발 시간을 알 수 없으면 일단 표시; 알면 현재 시각 이후만
+      return dep === null || dep >= nowMin
+    })
+    .map((f) => {
+      const depTime = (f.departureTimeLocal ?? f.departureTimeBase) ?? "-"
+      const arrRaw = f.arrivalTimeLocal ?? f.arrivalTimeBase
+      const arrOffset = f.departureTimeLocal
+        ? (f.arrivalDayOffsetLocal ?? 0)
+        : (f.arrivalDayOffsetBase ?? 0)
       const landingTime = arrRaw
         ? arrOffset > 0
           ? `${arrRaw}+${arrOffset}`
@@ -86,7 +110,7 @@ function dispatchTodayRemaining(
         checkInTime: checkInTime ?? "-",
         showCheckIn: false,
         landingTime,
-        showLanding: idx === arr.length - 1,
+        showLanding: true,
         date: "오늘",
         time: depTime,
       }
@@ -132,16 +156,15 @@ export function CurrentFlightFromCalendar() {
           throw new Error(`${base}${statusText}${details}`)
         }
 
-        const parsed = parseJejuScheduleText(data.text)
-        const picked = pickCurrentFlight(parsed)
+        // (L)/(B) 중복 제거 — (L) 우선
+        const flights = deduplicateFlights(parseJejuScheduleText(data.text))
+        const picked = pickCurrentFlight(flights)
+
         if (!picked) {
           const duty = parseDutyCode(data.text)
-
-          // 나머지 편 없음 → 빈 배열 전달
           window.dispatchEvent(
             new CustomEvent("skymeet:todayRemainingFlights", { detail: { flights: [] } })
           )
-
           if (!duty) {
             if (!data.text.trim()) {
               if (!cancelled) {
@@ -170,15 +193,15 @@ export function CurrentFlightFromCalendar() {
           return
         }
 
-        // 오늘 나머지 편 → ScheduleSection으로 브로드캐스트
+        // 나머지 오늘 편 → ScheduleSection 브로드캐스트
         if (!cancelled) {
-          dispatchTodayRemaining(parsed, picked.flightNumber, data.checkInTime ?? null)
+          dispatchTodayRemaining(flights, picked.flightNumber, data.checkInTime ?? null)
         }
 
-        const useBase = Boolean(picked.arrivalTimeBase || picked.departureTimeBase)
-        const arrivalTime = useBase
-          ? formatWithDayOffset(picked.arrivalTimeBase, picked.arrivalDayOffsetBase)
-          : formatWithDayOffset(picked.arrivalTimeLocal, picked.arrivalDayOffsetLocal)
+        // (L) 우선으로 도착 시간 계산
+        const arrivalTime = picked.arrivalTimeLocal
+          ? formatWithDayOffset(picked.arrivalTimeLocal, picked.arrivalDayOffsetLocal)
+          : formatWithDayOffset(picked.arrivalTimeBase, picked.arrivalDayOffsetBase)
 
         if (!cancelled) {
           let liveStatus = "캘린더 텍스트에서 파싱한 스케줄입니다"
@@ -187,17 +210,13 @@ export function CurrentFlightFromCalendar() {
               cache: "no-store",
             })
             const frData = (await frRes.json()) as
-              | {
-                  ok: true
-                  statusType: "Estimated" | "Landed" | null
-                  statusTime: string | null
-                }
+              | { ok: true; statusType: "Estimated" | "Landed" | null; statusTime: string | null }
               | { ok: false }
             if (frRes.ok && frData.ok && frData.statusType && frData.statusTime) {
               liveStatus = `${frData.statusType} ${frData.statusTime}`
             }
           } catch {
-            // Ignore FR fetch failures and keep calendar-based fallback message.
+            // Flightradar24 실패 시 캘린더 기반 메시지 유지
           }
 
           setFlight({
@@ -223,11 +242,8 @@ export function CurrentFlightFromCalendar() {
 
     void run()
 
-    function onSync() {
-      void run()
-    }
+    function onSync() { void run() }
     window.addEventListener("skymeet:calendarSync", onSync)
-
     return () => {
       cancelled = true
       window.removeEventListener("skymeet:calendarSync", onSync)

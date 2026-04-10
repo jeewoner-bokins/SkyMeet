@@ -263,13 +263,9 @@ export async function GET() {
     row.landingTime = landingByDateKey[row.dateKey] ?? "-"
   }
 
-  const seenLandingDateKey = new Set<string>()
-  for (let i = upcoming.length - 1; i >= 0; i--) {
-    const row = upcoming[i]
-    if (!row.isFlight) continue
-    if (seenLandingDateKey.has(row.dateKey)) continue
-    row.showLanding = true
-    seenLandingDateKey.add(row.dateKey)
+  // 비행 편마다 랜딩 시간 표시
+  for (const row of upcoming) {
+    if (row.isFlight) row.showLanding = true
   }
 
   return NextResponse.json({
