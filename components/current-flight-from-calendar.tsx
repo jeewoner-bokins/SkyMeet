@@ -130,6 +130,7 @@ export function CurrentFlightFromCalendar() {
     departure: string
     arrival: string
     arrivalTime: string
+    arrivalLabel: string
     status: string
     checkInTime?: string
     landingTime?: string
@@ -173,6 +174,7 @@ export function CurrentFlightFromCalendar() {
                   departure: "—",
                   arrival: "—",
                   arrivalTime: "—",
+                  arrivalLabel: "도착 예정",
                   status: "오늘 캘린더에 표시할 스케줄 텍스트가 없습니다",
                 })
               }
@@ -187,6 +189,7 @@ export function CurrentFlightFromCalendar() {
               departure: "—",
               arrival: "—",
               arrivalTime: "—",
+              arrivalLabel: "도착 예정",
               status: duty.label,
             })
           }
@@ -204,26 +207,57 @@ export function CurrentFlightFromCalendar() {
           : formatWithDayOffset(picked.arrivalTimeBase, picked.arrivalDayOffsetBase)
 
         if (!cancelled) {
+          // 캘린더 기반 기본값
+          let heroTime = arrivalTime
+          let heroLabel = "도착 예정"
           let liveStatus = "캘린더 텍스트에서 파싱한 스케줄입니다"
+
           try {
-            const frRes = await fetch(`/api/flight-status/${encodeURIComponent(picked.flightNumber)}`, {
-              cache: "no-store",
-            })
+            const frRes = await fetch(
+              `/api/flight-status/${encodeURIComponent(picked.flightNumber)}`,
+              { cache: "no-store" }
+            )
             const frData = (await frRes.json()) as
-              | { ok: true; statusType: "Estimated" | "Landed" | null; statusTime: string | null }
+              | { ok: true; statusKind: string | null; statusTime: string | null }
               | { ok: false }
-            if (frRes.ok && frData.ok && frData.statusType && frData.statusTime) {
-              liveStatus = `${frData.statusType} ${frData.statusTime}`
+
+            if (frRes.ok && frData.ok && frData.statusKind && frData.statusTime) {
+              switch (frData.statusKind) {
+                case "estimated_departure":
+                  // 지연 — 아직 출발 전이므로 출발 예정 시각을 히어로로 표시
+                  heroTime = frData.statusTime
+                  heroLabel = "출발 예정"
+                  liveStatus = "지연 (Flightradar24)"
+                  break
+                case "estimated_arrival":
+                  // 비행 중 — 도착 예정 시각
+                  heroTime = frData.statusTime
+                  heroLabel = "도착 예정"
+                  liveStatus = "비행 중 (Flightradar24)"
+                  break
+                case "scheduled":
+                  // 정시 운항 — Scheduled arrival 시각
+                  heroTime = frData.statusTime
+                  heroLabel = "도착 예정"
+                  liveStatus = "정시 운항 예정 (Flightradar24)"
+                  break
+                case "landed":
+                  heroTime = frData.statusTime
+                  heroLabel = "도착 완료"
+                  liveStatus = "착륙 완료 (Flightradar24)"
+                  break
+              }
             }
           } catch {
-            // Flightradar24 실패 시 캘린더 기반 메시지 유지
+            // Flightradar24 실패 시 캘린더 기반 값 유지
           }
 
           setFlight({
             flightNumber: picked.flightNumber,
             departure: picked.departure,
             arrival: picked.arrival,
-            arrivalTime,
+            arrivalTime: heroTime,
+            arrivalLabel: heroLabel,
             status: liveStatus,
             checkInTime: data.checkInTime ?? undefined,
             landingTime: arrivalTime !== "—" ? arrivalTime : undefined,
@@ -292,6 +326,7 @@ export function CurrentFlightFromCalendar() {
       departure={flight?.departure ?? "—"}
       arrival={flight?.arrival ?? "—"}
       arrivalTime={flight?.arrivalTime ?? "—"}
+      arrivalLabel={flight?.arrivalLabel}
       status={flight?.status ?? "캘린더 텍스트에서 파싱한 스케줄입니다"}
       checkInTime={flight?.checkInTime}
       landingTime={flight?.landingTime}

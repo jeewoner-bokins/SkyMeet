@@ -2,9 +2,15 @@
 // 모듈 최상위에서 require 하면 Next.js 빌드 타임 "Collecting page data" 단계에서
 // CJS 패키지 내부 코드가 실행되어 TypeError 가 발생하므로, 함수 호출 시점에만 로드합니다.
 
-type FlightStatusResult = {
+export type FlightStatusKind =
+  | "estimated_departure"  // 지연 — 아직 출발 전
+  | "estimated_arrival"    // 비행 중 — 도착 예정
+  | "scheduled"            // 정시 예정
+  | "landed"               // 착륙 완료
+
+export type FlightStatusResult = {
   flightNumber: string
-  statusType: "Estimated" | "Landed" | null
+  statusKind: FlightStatusKind | null
   statusTime: string | null
   matchedRow: string | null
 }
@@ -17,33 +23,62 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function parseStatusFromText(
-  text: string
-): { type: "Estimated" | "Landed"; time: string } | null {
-  const normalized = text.replace(/\s+/g, " ").trim()
+/** "4:26 PM" / "4:26PM" / "16:26" → "16:26" (24h) */
+function normalizeTime(hhmm: string, ampm?: string): string | null {
+  const m = hhmm.match(/^(\d{1,2}):(\d{2})$/)
+  if (!m) return null
+  let h = Number(m[1])
+  const min = m[2]
+  if (ampm) {
+    const upper = ampm.toUpperCase()
+    if (upper === "PM" && h !== 12) h += 12
+    if (upper === "AM" && h === 12) h = 0
+  }
+  return `${String(h).padStart(2, "0")}:${min}`
+}
 
-  const estimated = normalized.match(/Estimated\s+(\d{1,2}:\d{2})/i)
-  if (estimated) return { type: "Estimated", time: estimated[1] }
+/** 텍스트 한 줄에서 시간 추출 (12h AM/PM, 24h 모두 지원) */
+function extractTime(text: string): string | null {
+  const m = text.match(/(\d{1,2}:\d{2})\s*(AM|PM)?/i)
+  if (!m) return null
+  return normalizeTime(m[1], m[2])
+}
 
-  const landed = normalized.match(/Landed\s+(\d{1,2}:\d{2})/i)
-  if (landed) return { type: "Landed", time: landed[1] }
+function parseStatusFromText(text: string): { kind: FlightStatusKind; time: string } | null {
+  const n = text.replace(/\s+/g, " ").trim()
+  const lo = n.toLowerCase()
+  const time = extractTime(n)
+  if (!time) return null
+
+  // "Estimated departure …" 또는 "Estimated dep …"
+  if (/estimated\s+(dep|departure)/i.test(lo)) return { kind: "estimated_departure", time }
+  // "Estimated arrival …" 또는 "Estimated arr …"
+  if (/estimated\s+(arr|arrival)/i.test(lo)) return { kind: "estimated_arrival", time }
+  // 그냥 "Estimated …" → 도착 예정으로 간주
+  if (/estimated/i.test(lo)) return { kind: "estimated_arrival", time }
+  // "Scheduled …"
+  if (/scheduled/i.test(lo)) return { kind: "scheduled", time }
+  // "Landed …"
+  if (/landed/i.test(lo)) return { kind: "landed", time }
 
   return null
 }
 
 // 프로세스 당 한 번만 stealth 플러그인을 등록
-let _chromium: { launch: (...args: unknown[]) => Promise<unknown>; use: (plugin: unknown) => void } | null = null
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _chromium: any = null
 
 function getChromium() {
   if (!_chromium) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require("playwright-extra") as { chromium: typeof _chromium & object }
+    const mod = require("playwright-extra")
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const StealthPlugin = require("puppeteer-extra-plugin-stealth") as () => unknown
+    const StealthPlugin = require("puppeteer-extra-plugin-stealth")
     mod.chromium.use(StealthPlugin())
     _chromium = mod.chromium
   }
-  return _chromium!
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return _chromium as any
 }
 
 export async function fetchFlightradarStatus(
@@ -122,14 +157,14 @@ export async function fetchFlightradarStatus(
       if (parsed) {
         return {
           flightNumber,
-          statusType: parsed.type,
+          statusKind: parsed.kind,
           statusTime: parsed.time,
           matchedRow: line,
         }
       }
     }
 
-    return { flightNumber, statusType: null, statusTime: null, matchedRow: null }
+    return { flightNumber, statusKind: null, statusTime: null, matchedRow: null }
   } finally {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (context as any).close()

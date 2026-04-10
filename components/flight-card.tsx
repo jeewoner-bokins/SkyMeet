@@ -9,6 +9,8 @@ interface FlightCardProps {
   departure: string
   arrival: string
   arrivalTime: string
+  /** 히어로 시간 위에 표시되는 라벨. 기본값: "도착 예정" */
+  arrivalLabel?: string
   status: string
   checkInTime?: string
   landingTime?: string
@@ -72,6 +74,7 @@ export function FlightCard({
   departure,
   arrival,
   arrivalTime,
+  arrivalLabel = "도착 예정",
   status,
   checkInTime,
   landingTime
@@ -127,7 +130,7 @@ export function FlightCard({
 
         {/* Arrival Time - Hero Element */}
         <div className="text-center py-6 px-4 bg-secondary/50 rounded-2xl mb-6">
-          <p className="text-sm font-medium text-muted-foreground mb-2">도착 예정</p>
+          <p className="text-sm font-medium text-muted-foreground mb-2">{arrivalLabel}</p>
           <p className="text-5xl md:text-6xl font-bold tracking-tight text-foreground tabular-nums">
             {arrivalTime}
           </p>

@@ -8,6 +8,7 @@ export async function GET(
   try {
     const { flightNumber } = await params
     const result = await fetchFlightradarStatus(flightNumber)
+    // statusKind, statusTime, matchedRow 그대로 전달
     return NextResponse.json({ ok: true, ...result })
   } catch (error) {
     return NextResponse.json(
