@@ -194,7 +194,7 @@ export function CurrentFlightFromCalendar() {
 
             if (!cancelled) {
               setFlight({
-                flightNumber: "레이오버",
+                flightNumber: "LAYOVER",
                 departure: location,
                 arrival: location,
                 arrivalTime: inArrivalWindow
@@ -290,7 +290,7 @@ export function CurrentFlightFromCalendar() {
               ? `한국 시간 ${fr24LandedTime} 착륙 · 다음 출근 ${nextDepTime}`
               : `${location} 체류 중 · 다음 출근 ${nextDepTime}`
             setFlight({
-              flightNumber: "레이오버",
+              flightNumber: "LAYOVER",
               departure: inbound?.departure ?? location,
               arrival: inbound?.arrival ?? location,
               arrivalTime: landedTime,
@@ -299,7 +299,7 @@ export function CurrentFlightFromCalendar() {
             })
           } else {
             setFlight({
-              flightNumber: "레이오버",
+              flightNumber: "LAYOVER",
               departure: location,
               arrival: location,
               arrivalTime: nextDepTime,
@@ -379,10 +379,21 @@ export function CurrentFlightFromCalendar() {
                 heroTime  = frData.statusTime
                 heroLabel = "착륙 완료"
                 if (picked.arrival === "ICN") {
-                  // ICN 도착 시 게이트 정보 표시 (API 키 설정 시 활성화)
-                  liveStatus = "착륙 완료 · 게이트 정보 확인 중"
+                  // ICN 도착 시 게이트 조회
+                  liveStatus = "착륙 완료 · 게이트 확인 중"
+                  try {
+                    const gateRes = await fetch(
+                      `/api/icn-gate/${encodeURIComponent(picked.flightNumber)}`,
+                      { cache: "no-store" }
+                    )
+                    const gateData = await gateRes.json() as { ok: boolean; gate?: string | null }
+                    liveStatus = gateData.ok && gateData.gate
+                      ? `도착 게이트 ${gateData.gate}`
+                      : "착륙 완료 (게이트 미배정)"
+                  } catch {
+                    liveStatus = "착륙 완료 (게이트 조회 실패)"
+                  }
                 } else if (!KOREAN_AIRPORTS.has(picked.arrival)) {
-                  // 해외 도착 시 한국 시간 표시
                   liveStatus = `한국 시간 ${frData.statusTime} 착륙 완료`
                 } else {
                   liveStatus = "착륙 완료 (Flightradar24)"

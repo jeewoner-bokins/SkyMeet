@@ -133,18 +133,27 @@ export type ParsedLayover = {
  *   0130-0005+1(L)   ← 호텔도착예상 - 다음출발(현지시각)  ← 사용
  *   0230-0105+1(B)   ← 무시
  *   CEB-CEB          ← 체류 공항 (첫 코드 사용)
+ *
+ * 주의: 캘린더 텍스트 전체가 아닌 LAYOV 섹션 내부만 파싱
+ * (다른 항공편의 ICN 경로 등이 잘못 매칭되는 것을 방지)
  */
 export function parseLayoverBlock(text: string): ParsedLayover | null {
   const normalized = normalizeText(text)
   if (!/LAYOV/i.test(normalized)) return null
 
+  // LAYOV: 이후 다음 빈 줄(섹션 구분)까지만 추출
+  const layovIdx = normalized.search(/LAYOV/i)
+  const afterLayov = normalized.slice(layovIdx)
+  const sectionEnd = afterLayov.search(/\n\s*\n/)
+  const section = sectionEnd !== -1 ? afterLayov.slice(0, sectionEnd) : afterLayov
+
   // (L) 행: hotelArrival-nextDeparture+offset(L)
   const timeRe = /(\d{3,4})\s*-\s*(\d{3,4})(?:\+(\d+))?\s*\(\s*L\s*\)/i
-  const timeMatch = normalized.match(timeRe)
+  const timeMatch = section.match(timeRe)
 
-  // 공항 코드 첫 번째 (CEB-CEB → CEB)
+  // 공항 코드: LAYOV 섹션 내에서만 (CEB-CEB → CEB)
   const locRe = /\b([A-Z]{3})\s*-\s*([A-Z]{3})\b/
-  const locMatch = normalized.match(locRe)
+  const locMatch = section.match(locRe)
 
   return {
     hotelArrivalLocal: timeMatch ? toHHMM(timeMatch[1]) : undefined,
