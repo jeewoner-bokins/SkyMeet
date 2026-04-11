@@ -179,15 +179,17 @@ export async function GET() {
     const text = `${e.description ?? ""}\n${e.summary ?? ""}\n${e.location ?? ""}`.trim()
     if (!text) continue
     const dateKey = dateKeyFromEventStart(e.start)
-    // 오늘 이벤트: today API에서 표시하므로 upcoming 목록에는 추가하지 않음.
-    // 단, LAYOV 블록이 있으면 다음날 출근 시간을 미리 저장.
-    if (dateKey === todayDateKey) {
-      const layover = parseLayoverBlock(text)
-      if (layover?.nextDepartureLocal && layover.nextDepartureDayOffset > 0) {
-        const targetDateKey = addDaysToDateKey(todayDateKey, layover.nextDepartureDayOffset)
-        const nextCheckIn = layover.nextDepartureLocal
-        if (!checkInByDateKey[targetDateKey] || nextCheckIn < checkInByDateKey[targetDateKey]) {
-          checkInByDateKey[targetDateKey] = nextCheckIn
+    // 오늘 이하 이벤트: today API에서 표시하므로 upcoming 목록에는 추가하지 않음.
+    // 단, 오늘 LAYOV 블록이 있으면 다음날 출근 시간을 미리 저장.
+    if (dateKey <= todayDateKey) {
+      if (dateKey === todayDateKey) {
+        const layover = parseLayoverBlock(text)
+        if (layover?.nextDepartureLocal && layover.nextDepartureDayOffset > 0) {
+          const targetDateKey = addDaysToDateKey(todayDateKey, layover.nextDepartureDayOffset)
+          const nextCheckIn = layover.nextDepartureLocal
+          if (!checkInByDateKey[targetDateKey] || nextCheckIn < checkInByDateKey[targetDateKey]) {
+            checkInByDateKey[targetDateKey] = nextCheckIn
+          }
         }
       }
       continue
