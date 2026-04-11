@@ -119,6 +119,41 @@ export function parseJejuScheduleText(text: string): ParsedFlightSchedule[] {
   return results
 }
 
+export type ParsedLayover = {
+  hotelArrivalLocal?: string   // "HH:MM" — 호텔 도착 예상 (현지 기준, 참고용)
+  nextDepartureLocal?: string  // "HH:MM" — 다음 출발 / 출근 시각 (L 기준)
+  nextDepartureDayOffset: number // 0=당일, 1=다음날
+  location?: string            // 체류 공항 코드 e.g. "CEB"
+}
+
+/**
+ * LAYOV 블록 파싱
+ * 예:
+ *   LAYOV:
+ *   0130-0005+1(L)   ← 호텔도착예상 - 다음출발(현지시각)  ← 사용
+ *   0230-0105+1(B)   ← 무시
+ *   CEB-CEB          ← 체류 공항 (첫 코드 사용)
+ */
+export function parseLayoverBlock(text: string): ParsedLayover | null {
+  const normalized = normalizeText(text)
+  if (!/LAYOV/i.test(normalized)) return null
+
+  // (L) 행: hotelArrival-nextDeparture+offset(L)
+  const timeRe = /(\d{3,4})\s*-\s*(\d{3,4})(?:\+(\d+))?\s*\(\s*L\s*\)/i
+  const timeMatch = normalized.match(timeRe)
+
+  // 공항 코드 첫 번째 (CEB-CEB → CEB)
+  const locRe = /\b([A-Z]{3})\s*-\s*([A-Z]{3})\b/
+  const locMatch = normalized.match(locRe)
+
+  return {
+    hotelArrivalLocal: timeMatch ? toHHMM(timeMatch[1]) : undefined,
+    nextDepartureLocal: timeMatch ? toHHMM(timeMatch[2]) : undefined,
+    nextDepartureDayOffset: timeMatch ? Number(timeMatch[3] ?? "0") : 0,
+    location: locMatch ? locMatch[1] : undefined,
+  }
+}
+
 export function parseDutyCode(text: string): {
   code: "OFF" | "VAC" | "TRC" | "LAYOV"
   label: string

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { FlightCard } from "@/components/flight-card"
-import { parseDutyCode, parseJejuScheduleText } from "@/lib/flight-schedule-parser"
+import { parseDutyCode, parseJejuScheduleText, parseLayoverBlock } from "@/lib/flight-schedule-parser"
 import { useAuthSession } from "@/lib/client-auth"
 
 type ApiOk = { ok: true; text: string; checkInTime?: string | null }
@@ -167,6 +167,46 @@ export function CurrentFlightFromCalendar() {
             }
             return
           }
+          // ── LAYOV 특수 처리 ──────────────────────────────────────────
+          if (duty.code === "LAYOV") {
+            const layover = parseLayoverBlock(data.text)
+            const location = layover?.location ?? "현지"
+
+            // 다음 출발 시각 문자열 (당일/다음날)
+            const nextDepTime = layover?.nextDepartureLocal
+              ? layover.nextDepartureDayOffset > 0
+                ? `${layover.nextDepartureLocal}+${layover.nextDepartureDayOffset}`
+                : layover.nextDepartureLocal
+              : "—"
+
+            // 호텔 도착 후 2시간 이내 → "도착 완료" 화면 유지
+            let inArrivalWindow = false
+            if (layover?.hotelArrivalLocal) {
+              const nowMin = new Date().getHours() * 60 + new Date().getMinutes()
+              const hotelMin = toMinutes(layover.hotelArrivalLocal) ?? 0
+              let diff = nowMin - hotelMin
+              if (diff < -720) diff += 24 * 60  // 자정 경계 보정
+              inArrivalWindow = diff >= 0 && diff < 120
+            }
+
+            if (!cancelled) {
+              setFlight({
+                flightNumber: "레이오버",
+                departure: location,
+                arrival: location,
+                arrivalTime: inArrivalWindow
+                  ? (layover?.hotelArrivalLocal ?? "—")
+                  : nextDepTime,
+                arrivalLabel: inArrivalWindow ? "도착 완료" : "출근 예정",
+                status: inArrivalWindow
+                  ? `${location} 체류 중 · 다음 출근 ${nextDepTime}`
+                  : `${location} 레이오버 중`,
+              })
+            }
+            return
+          }
+
+          // OFF / VAC / TRC 등 기타 duty
           if (!cancelled) {
             setFlight({
               flightNumber: duty.code,
