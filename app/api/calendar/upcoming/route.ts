@@ -1,4 +1,4 @@
-import { parseDutyCode, parseJejuScheduleText } from "@/lib/flight-schedule-parser"
+import { parseDutyCode, parseJejuScheduleText, parseLayoverBlock } from "@/lib/flight-schedule-parser"
 import { authOptions } from "@/lib/auth"
 import { getServerSession } from "next-auth"
 import { NextResponse } from "next/server"
@@ -129,7 +129,7 @@ export async function GET() {
     const url = new URL(
       `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`
     )
-    url.searchParams.set("timeMin", `${startDateKey}T00:00:00+09:00`)
+    url.searchParams.set("timeMin", `${todayDateKey}T00:00:00+09:00`)
     url.searchParams.set("timeMax", `${endDateKey}T23:59:59+09:00`)
     url.searchParams.set("singleEvents", "true")
     url.searchParams.set("orderBy", "startTime")
@@ -179,10 +179,21 @@ export async function GET() {
     const text = `${e.description ?? ""}\n${e.summary ?? ""}\n${e.location ?? ""}`.trim()
     if (!text) continue
     const dateKey = dateKeyFromEventStart(e.start)
-    // 오늘 이벤트는 today API에서 처리하므로 제외
-    // (all-day 이벤트의 end.date가 내일로 저장되어 upcoming 쿼리에 포함될 수 있음)
-    if (dateKey === todayDateKey) continue
+    // 오늘 이벤트: today API에서 표시하므로 upcoming 목록에는 추가하지 않음.
+    // 단, LAYOV 블록이 있으면 다음날 출근 시간을 미리 저장.
+    if (dateKey === todayDateKey) {
+      const layover = parseLayoverBlock(text)
+      if (layover?.nextDepartureLocal && layover.nextDepartureDayOffset > 0) {
+        const targetDateKey = addDaysToDateKey(todayDateKey, layover.nextDepartureDayOffset)
+        const nextCheckIn = layover.nextDepartureLocal
+        if (!checkInByDateKey[targetDateKey] || nextCheckIn < checkInByDateKey[targetDateKey]) {
+          checkInByDateKey[targetDateKey] = nextCheckIn
+        }
+      }
+      continue
+    }
     const date = dayLabel(dateKey, todayDateKey)
+
     const checkInCandidate = checkInHHMMFromEventStart(e.start)
     if (checkInCandidate) {
       if (!checkInByDateKey[dateKey] || checkInCandidate < checkInByDateKey[dateKey]) {
