@@ -120,10 +120,13 @@ export function parseJejuScheduleText(text: string): ParsedFlightSchedule[] {
 }
 
 export type ParsedLayover = {
-  hotelArrivalLocal?: string   // "HH:MM" — 호텔 도착 예상 (현지 기준, 참고용)
-  nextDepartureLocal?: string  // "HH:MM" — 다음 출발 / 출근 시각 (L 기준)
+  hotelArrivalLocal?: string   // "HH:MM" — 호텔 도착 예상 (현지)
+  nextDepartureLocal?: string  // "HH:MM" — 출근 시각 (현지)
   nextDepartureDayOffset: number // 0=당일, 1=다음날
   location?: string            // 체류 공항 코드 e.g. "CEB"
+  hotelArrivalBase?: string    // "HH:MM" — 호텔 도착 예상 (한국 시간)
+  nextDepartureBase?: string   // "HH:MM" — 출근 시각 (한국 시간)
+  nextDepartureBaseDayOffset: number // 0=당일, 1=다음날
 }
 
 /**
@@ -147,19 +150,26 @@ export function parseLayoverBlock(text: string): ParsedLayover | null {
   const sectionEnd = afterLayov.search(/\n\s*\n/)
   const section = sectionEnd !== -1 ? afterLayov.slice(0, sectionEnd) : afterLayov
 
-  // (L) 행: hotelArrival-nextDeparture+offset(L)
-  const timeRe = /(\d{3,4})\s*-\s*(\d{3,4})(?:\+(\d+))?\s*\(\s*L\s*\)/i
-  const timeMatch = section.match(timeRe)
+  const timeRe = /(\d{3,4})\s*-\s*(\d{3,4})(?:\+(\d+))?\s*\(\s*([LB])\s*\)/gi
+  let lMatch: RegExpExecArray | null = null
+  let bMatch: RegExpExecArray | null = null
+  for (const m of section.matchAll(timeRe)) {
+    if (m[4].toUpperCase() === "L" && !lMatch) lMatch = m
+    if (m[4].toUpperCase() === "B" && !bMatch) bMatch = m
+  }
 
   // 공항 코드: LAYOV 섹션 내에서만 (CEB-CEB → CEB)
   const locRe = /\b([A-Z]{3})\s*-\s*([A-Z]{3})\b/
   const locMatch = section.match(locRe)
 
   return {
-    hotelArrivalLocal: timeMatch ? toHHMM(timeMatch[1]) : undefined,
-    nextDepartureLocal: timeMatch ? toHHMM(timeMatch[2]) : undefined,
-    nextDepartureDayOffset: timeMatch ? Number(timeMatch[3] ?? "0") : 0,
+    hotelArrivalLocal: lMatch ? toHHMM(lMatch[1]) : undefined,
+    nextDepartureLocal: lMatch ? toHHMM(lMatch[2]) : undefined,
+    nextDepartureDayOffset: lMatch ? Number(lMatch[3] ?? "0") : 0,
     location: locMatch ? locMatch[1] : undefined,
+    hotelArrivalBase: bMatch ? toHHMM(bMatch[1]) : undefined,
+    nextDepartureBase: bMatch ? toHHMM(bMatch[2]) : undefined,
+    nextDepartureBaseDayOffset: bMatch ? Number(bMatch[3] ?? "0") : 0,
   }
 }
 

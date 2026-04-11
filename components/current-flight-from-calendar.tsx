@@ -182,6 +182,11 @@ export function CurrentFlightFromCalendar() {
                 : layover.nextDepartureLocal
               : "—"
 
+            // 한국 시간 출근 시각
+            const nextDepKstTime = layover?.nextDepartureBase
+              ? formatWithDayOffset(layover.nextDepartureBase, layover.nextDepartureBaseDayOffset)
+              : null
+
             // 호텔 도착 후 2시간 이내 → "도착 완료" 화면 유지
             let inArrivalWindow = false
             if (layover?.hotelArrivalLocal) {
@@ -200,10 +205,10 @@ export function CurrentFlightFromCalendar() {
                 arrivalTime: inArrivalWindow
                   ? (layover?.hotelArrivalLocal ?? "—")
                   : nextDepTime,
-                arrivalLabel: inArrivalWindow ? "착륙 완료" : "출근 예정",
+                arrivalLabel: inArrivalWindow ? "착륙 완료" : "출근 시간",
                 status: inArrivalWindow
-                  ? `${location} 체류 중 · 다음 출근 ${nextDepTime}`
-                  : `${location} 레이오버 중`,
+                  ? (nextDepKstTime ? `한국 시간 ${nextDepKstTime}` : `${location} 체류 중 · 다음 출근 ${nextDepTime}`)
+                  : (nextDepKstTime ? `한국 시간 ${nextDepKstTime}` : `${location} 레이오버 중`),
               })
             }
             return
@@ -242,6 +247,11 @@ export function CurrentFlightFromCalendar() {
                 ? `${layover.nextDepartureLocal}+${layover.nextDepartureDayOffset}`
                 : layover.nextDepartureLocal)
             : "—"
+
+          // 한국 시간 출근 시각
+          const nextDepKstTime = layover?.nextDepartureBase
+            ? formatWithDayOffset(layover.nextDepartureBase, layover.nextDepartureBaseDayOffset)
+            : null
 
           // 전날 inbound 편: +1 arrival이 있는 편 (가장 마지막 출발 기준)
           const inboundCandidates = allFlights.filter(f => {
@@ -287,8 +297,8 @@ export function CurrentFlightFromCalendar() {
 
           if (inArrivalWindow && landedTime) {
             const krTimeStatus = fr24LandedTime
-              ? `한국 시간 ${fr24LandedTime} 착륙 · 다음 출근 ${nextDepTime}`
-              : `${location} 체류 중 · 다음 출근 ${nextDepTime}`
+              ? `한국 시간 ${fr24LandedTime} 착륙 · 다음 출근 ${nextDepKstTime ?? nextDepTime}`
+              : (nextDepKstTime ? `한국 시간 ${nextDepKstTime}` : `${location} 체류 중 · 다음 출근 ${nextDepTime}`)
             setFlight({
               flightNumber: "LAYOVER",
               departure: inbound?.departure ?? location,
@@ -303,8 +313,8 @@ export function CurrentFlightFromCalendar() {
               departure: location,
               arrival: location,
               arrivalTime: nextDepTime,
-              arrivalLabel: "출근 예정",
-              status: `${location} 레이오버 중`,
+              arrivalLabel: "출근 시간",
+              status: nextDepKstTime ? `한국 시간 ${nextDepKstTime}` : `${location} 레이오버 중`,
             })
           }
           return
