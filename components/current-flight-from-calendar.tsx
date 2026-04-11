@@ -5,6 +5,9 @@ import { FlightCard } from "@/components/flight-card"
 import { parseDutyCode, parseJejuScheduleText, parseLayoverBlock } from "@/lib/flight-schedule-parser"
 import { useAuthSession } from "@/lib/client-auth"
 
+/** 한국 내 공항 코드 (착륙 완료 시 "한국 시간" 표시 제외 대상) */
+const KOREAN_AIRPORTS = new Set(["ICN", "GMP", "CJU", "PUS", "TAE", "CJJ", "KWJ", "MWX", "YNY", "WJU"])
+
 type ApiOk = { ok: true; text: string; checkInTime?: string | null }
 type ApiErr = { ok: false; error: string; details?: string; [k: string]: unknown }
 type ParsedFlight = ReturnType<typeof parseJejuScheduleText>[number]
@@ -197,7 +200,7 @@ export function CurrentFlightFromCalendar() {
                 arrivalTime: inArrivalWindow
                   ? (layover?.hotelArrivalLocal ?? "—")
                   : nextDepTime,
-                arrivalLabel: inArrivalWindow ? "도착 완료" : "출근 예정",
+                arrivalLabel: inArrivalWindow ? "착륙 완료" : "출근 예정",
                 status: inArrivalWindow
                   ? `${location} 체류 중 · 다음 출근 ${nextDepTime}`
                   : `${location} 레이오버 중`,
@@ -283,13 +286,16 @@ export function CurrentFlightFromCalendar() {
           dispatchTodayRemaining(allFlights, inbound?.flightNumber ?? "__layov__", data.checkInTime ?? null)
 
           if (inArrivalWindow && landedTime) {
+            const krTimeStatus = fr24LandedTime
+              ? `한국 시간 ${fr24LandedTime} 착륙 · 다음 출근 ${nextDepTime}`
+              : `${location} 체류 중 · 다음 출근 ${nextDepTime}`
             setFlight({
               flightNumber: "레이오버",
               departure: inbound?.departure ?? location,
               arrival: inbound?.arrival ?? location,
               arrivalTime: landedTime,
-              arrivalLabel: "도착 완료",
-              status: `${location} 체류 중 · 다음 출근 ${nextDepTime}`,
+              arrivalLabel: "착륙 완료",
+              status: krTimeStatus,
             })
           } else {
             setFlight({
@@ -371,8 +377,16 @@ export function CurrentFlightFromCalendar() {
                 break
               case "landed":
                 heroTime  = frData.statusTime
-                heroLabel = "도착 완료"
-                liveStatus = "착륙 완료 (Flightradar24)"
+                heroLabel = "착륙 완료"
+                if (picked.arrival === "ICN") {
+                  // ICN 도착 시 게이트 정보 표시 (API 키 설정 시 활성화)
+                  liveStatus = "착륙 완료 · 게이트 정보 확인 중"
+                } else if (!KOREAN_AIRPORTS.has(picked.arrival)) {
+                  // 해외 도착 시 한국 시간 표시
+                  liveStatus = `한국 시간 ${frData.statusTime} 착륙 완료`
+                } else {
+                  liveStatus = "착륙 완료 (Flightradar24)"
+                }
                 break
             }
           } else {
