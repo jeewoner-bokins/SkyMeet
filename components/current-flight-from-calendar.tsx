@@ -228,6 +228,82 @@ export function CurrentFlightFromCalendar() {
         const departed = sorted.filter(f => (depMinutes(f) ?? 9999) <= nowMin)
         const upcoming = sorted.filter(f => (depMinutes(f) ?? 9999) > nowMin)
 
+        // ── 2b. LAYOV 날 처리 ────────────────────────────────────────────
+        // 캘린더에 LAYOV 코드가 있으면 +1 arrival 편은 전날 inbound → 레이오버 표시
+        const todayDuty = parseDutyCode(data.text)
+        if (todayDuty?.code === "LAYOV" && !cancelled) {
+          const layover = parseLayoverBlock(data.text)
+          const location = layover?.location ?? "현지"
+          const nextDepTime = layover?.nextDepartureLocal
+            ? (layover.nextDepartureDayOffset > 0
+                ? `${layover.nextDepartureLocal}+${layover.nextDepartureDayOffset}`
+                : layover.nextDepartureLocal)
+            : "—"
+
+          // 전날 inbound 편: +1 arrival이 있는 편 (가장 마지막 출발 기준)
+          const inboundCandidates = allFlights.filter(f => {
+            const off = f.departureTimeLocal
+              ? (f.arrivalDayOffsetLocal ?? 0)
+              : (f.arrivalDayOffsetBase ?? 0)
+            return off >= 1
+          })
+          inboundCandidates.sort((a, b) => (depMinutes(a) ?? 0) - (depMinutes(b) ?? 0))
+          const inbound = inboundCandidates[inboundCandidates.length - 1]
+
+          // 캘린더 기반 도착 시각 (fallback용)
+          const calArrTime = inbound?.departureTimeLocal
+            ? inbound.arrivalTimeLocal
+            : inbound?.arrivalTimeBase
+
+          // FR24에서 실제 착륙 시각 조회 (자정 넘어 착륙한 전날 출발편도 허용)
+          let fr24LandedTime: string | null = null
+          if (inbound && !cancelled) {
+            try {
+              const fr24 = await fetchFR24(inbound.flightNumber)
+              if (fr24.ok && fr24.statusKind === "landed" && fr24.statusTime) {
+                fr24LandedTime = fr24.statusTime
+              }
+            } catch (e) {
+              console.warn("[FR24 LAYOV inbound]", e)
+            }
+          }
+
+          // 도착 완료 기준 시각: FR24 우선, 없으면 캘린더
+          const landedTime = fr24LandedTime ?? calArrTime
+
+          // 착륙 후 2시간 이내 여부 (FR24 실제 착륙 시각 기준)
+          let inArrivalWindow = false
+          if (landedTime) {
+            const arrMin = toMinutes(landedTime) ?? 0
+            let diff = nowMin - arrMin
+            if (diff < -720) diff += 1440  // 자정 경계 보정
+            inArrivalWindow = diff >= 0 && diff < 120
+          }
+
+          dispatchTodayRemaining(allFlights, inbound?.flightNumber ?? "__layov__", data.checkInTime ?? null)
+
+          if (inArrivalWindow && landedTime) {
+            setFlight({
+              flightNumber: "레이오버",
+              departure: inbound?.departure ?? location,
+              arrival: inbound?.arrival ?? location,
+              arrivalTime: landedTime,
+              arrivalLabel: "도착 완료",
+              status: `${location} 체류 중 · 다음 출근 ${nextDepTime}`,
+            })
+          } else {
+            setFlight({
+              flightNumber: "레이오버",
+              departure: location,
+              arrival: location,
+              arrivalTime: nextDepTime,
+              arrivalLabel: "출근 예정",
+              status: `${location} 레이오버 중`,
+            })
+          }
+          return
+        }
+
         // ── 3. 후보 선택: 마지막 출발 편, 없으면 첫 예정 편 ──────────────
         let picked: ParsedFlight =
           departed.length > 0

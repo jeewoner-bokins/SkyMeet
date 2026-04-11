@@ -111,12 +111,15 @@ export async function fetchFlightradarStatus(
 
   // 가장 최근 항목부터 검사
   for (const entry of entries) {
-    // 0) 오늘(서울 기준) 날짜의 항목만 처리 — 과거 운항 데이터 차단
+    // 0) 날짜 필터 — 과거 운항 데이터 차단
+    // 출발이 오늘이거나, 실제 도착이 오늘(자정 넘어 착륙하는 전날 출발편 허용)
     const depTs =
       entry.time?.scheduled?.departure ??
       entry.time?.real?.departure ??
       entry.time?.estimated?.departure
-    if (!depTs || !isTodaySeoul(depTs)) continue
+    const realArrTs = entry.time?.real?.arrival
+    const dateOk = (depTs && isTodaySeoul(depTs)) || (realArrTs && isTodaySeoul(realArrTs))
+    if (!dateOk) continue
 
     // 1) status.text 에서 파싱 (예: "Estimated arrival 17:25")
     const statusText = entry.status?.text ?? ""
